@@ -1,0 +1,10 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.0
+opencv-python==4.10.0.84
+numpy==1.26.4
+pillow==10.4.0
+mediapipe==0.10.18
+deepface==0.0.93
+ultralytics==8.3.39
+tensorflow==2.19.1
+tf-keras==2.19.0

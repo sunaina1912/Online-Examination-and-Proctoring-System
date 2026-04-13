@@ -19,6 +19,25 @@ interface ProctoringOverlayProps {
     networkDisconnects: number
     recordingSupported: boolean
     audioMonitoringActive: boolean
+    pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable'
+    pythonAnalyzeStatus: 'idle' | 'healthy' | 'degraded' | 'unavailable'
+    pythonModelStatus: string
+    pythonLastLatencyMs: number
+    pythonFallbackActive: boolean
+    invalidClipsDropped: number
+    pythonLastSuccessAt?: string
+    pythonLastFailureReason?: string
+    secureBrowserMode: 'seb' | 'standard'
+    secureBrowserTrust: 'high' | 'reduced'
+    detectorMode: 'python_primary' | 'browser_fallback'
+    pythonLastAnalyzeAt?: string
+    pythonLastAnalyzeSuccessAt?: string
+    pythonLastAnalyzeFailureReason?: string
+    pythonAnalyzeAttempts: number
+    pythonAnalyzeSuccessCount: number
+    pythonAnalyzeFailureCount: number
+    lastSnapshotCapturedAt?: string
+    lastSnapshotCaptureFailedReason?: string
   }
   identitySnapshot?: string | null
 }
@@ -58,9 +77,18 @@ export function ProctoringOverlay({
   return (
     <div className="flex flex-col gap-3">
       <div className="relative rounded-xl overflow-hidden border border-surface-3 bg-surface-1 aspect-video">
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          className={cn(
+            'w-full h-full object-cover scale-x-[-1]',
+            camActive ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          )}
+        />
         {camActive ? (
           <>
-            <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover scale-x-[-1]" />
             <div className="absolute inset-0 pointer-events-none overflow-hidden">
               <div className="absolute w-full h-0.5 bg-brand-500/30 animate-scan" />
             </div>
@@ -162,6 +190,40 @@ export function ProctoringOverlay({
             icon: Smartphone,
             tone: sessionMetrics.networkDisconnects ? 'text-warn' : 'text-gray-300',
           },
+          {
+            label: 'Python AI',
+            value: sessionMetrics.pythonServiceStatus,
+            icon: Shield,
+            tone:
+              sessionMetrics.pythonServiceStatus === 'healthy'
+                ? 'text-ok'
+                : sessionMetrics.pythonServiceStatus === 'degraded'
+                ? 'text-warn'
+                : 'text-danger',
+          },
+          {
+            label: 'Analyze',
+            value: sessionMetrics.pythonAnalyzeStatus,
+            icon: ShieldAlert,
+            tone:
+              sessionMetrics.pythonAnalyzeStatus === 'healthy'
+                ? 'text-ok'
+                : sessionMetrics.pythonAnalyzeStatus === 'degraded'
+                ? 'text-warn'
+                : 'text-danger',
+          },
+          {
+            label: 'Detector',
+            value: sessionMetrics.detectorMode === 'python_primary' ? 'Python' : 'Browser',
+            icon: ShieldAlert,
+            tone: sessionMetrics.detectorMode === 'python_primary' ? 'text-ok' : 'text-warn',
+          },
+          {
+            label: 'Secure Browser',
+            value: sessionMetrics.secureBrowserMode === 'seb' ? 'SEB mode' : 'Standard',
+            icon: Shield,
+            tone: sessionMetrics.secureBrowserTrust === 'high' ? 'text-ok' : 'text-warn',
+          },
         ].map(({ label, value, icon: Icon, tone }) => (
           <div key={label} className="rounded-xl border border-surface-3 bg-surface-1 p-3">
             <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-1">
@@ -171,6 +233,20 @@ export function ProctoringOverlay({
             <div className={cn('text-xs font-semibold', tone)}>{value}</div>
           </div>
         ))}
+      </div>
+
+      <div className="rounded-xl border border-surface-3 bg-surface-1 p-3">
+        <div className="flex items-center gap-2 text-[11px] text-gray-500 mb-2">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Diagnostics
+        </div>
+        <div className="space-y-1 text-[11px]">
+          <p className="text-gray-400">Last Analyze: <span className="text-gray-200">{sessionMetrics.pythonLastAnalyzeAt ? new Date(sessionMetrics.pythonLastAnalyzeAt).toLocaleTimeString('en-IN') : 'never'}</span></p>
+          <p className="text-gray-400">Last Success: <span className="text-gray-200">{sessionMetrics.pythonLastAnalyzeSuccessAt ? new Date(sessionMetrics.pythonLastAnalyzeSuccessAt).toLocaleTimeString('en-IN') : 'never'}</span></p>
+          <p className="text-gray-400">Snapshot: <span className="text-gray-200">{sessionMetrics.lastSnapshotCapturedAt ? 'fresh' : 'missing'}</span></p>
+          <p className="text-gray-400">Analyze Rate: <span className="text-gray-200">{sessionMetrics.pythonAnalyzeSuccessCount}/{sessionMetrics.pythonAnalyzeAttempts}</span></p>
+          <p className="text-gray-400">Failure: <span className="text-gray-200">{sessionMetrics.pythonLastAnalyzeFailureReason || sessionMetrics.lastSnapshotCaptureFailedReason || 'none'}</span></p>
+        </div>
       </div>
 
       {identitySnapshot && (
@@ -206,6 +282,9 @@ export function ProctoringOverlay({
                   </span>
                 </div>
                 <p className="text-[10px] text-gray-500 mt-0.5">{ev.details}</p>
+                <p className="text-[9px] text-gray-600 mt-1 font-mono">
+                  {(ev.detectorDetails?.sourceMode === 'python_primary' ? 'python' : 'browser')}{ev.confidence !== undefined ? ` · ${Math.round(ev.confidence * 100)}%` : ''}
+                </p>
               </div>
             ))}
           </div>

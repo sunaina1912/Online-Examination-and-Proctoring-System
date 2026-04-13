@@ -7,6 +7,7 @@ import User from '@/models/User'
 import { BookOpen, Users, AlertTriangle, CheckCircle, Clock, ArrowRight } from 'lucide-react'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { ActiveMonitoringPanel } from '@/components/admin/ActiveMonitoringPanel'
 
 async function getStats(role: string, userId: string) {
   await dbConnect()
@@ -161,6 +162,10 @@ export default async function DashboardPage() {
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <ActiveMonitoringPanel />
       </div>
     </div>
   )

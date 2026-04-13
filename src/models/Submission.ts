@@ -16,6 +16,21 @@ export interface IProctoringEvent {
   timestamp: Date
   details:   string
   evidenceImage?: string
+  evidenceId?: string
+  source?: 'python' | 'browser'
+  confidence?: number
+  detectorDetails?: {
+    sourceMode?: 'python_primary' | 'browser_fallback'
+    mobileConfidence?: number
+    faceCount?: number
+    gazeScore?: number
+    identityDistance?: number
+    analysisTickId?: string
+    snapshotCaptured?: boolean
+    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable'
+    detector?: string
+    reason?: string
+  }
 }
 
 export interface IAnswer {
@@ -39,20 +54,27 @@ export interface ISubmission extends Document {
   graceUsed:       boolean
   graceExpiresAt?: Date
   secureBrowserDetected: boolean
+  secureBrowserMode?: 'seb' | 'standard'
+  secureBrowserTrust?: 'high' | 'reduced'
   currentQuestionIndex: number
   lastSavedAt?: Date
   questionOrder:   string[]
   optionOrders:    Array<{ questionId: string; order: number[] }>
+  identityBaselineEmbedding?: number[]
+  identityBaselineCapturedAt?: Date
+  identityBaselineEvidenceId?: string
   evidenceSnapshots: Array<{
     type: 'identity' | 'incident' | 'interval'
     timestamp: Date
     imageUrl: string
+    evidenceId?: string
     details: string
   }>
   recordingClips: Array<{
     timestamp: Date
     mimeType: string
     clipUrl: string
+    evidenceId?: string
     durationMs: number
   }>
   plagiarismScore: number
@@ -60,6 +82,9 @@ export interface ISubmission extends Document {
     questionId: string
     similarity: number
     reason: string
+    source: 'heuristic' | 'cross_submission'
+    confidenceLabel: 'heuristic' | 'high'
+    matchedSubmissionId?: string
   }>
   sessionMetrics: {
     fullscreenViolations: number
@@ -67,6 +92,25 @@ export interface ISubmission extends Document {
     networkDisconnects: number
     recordingSupported: boolean
     audioMonitoringActive: boolean
+    pythonServiceStatus?: 'healthy' | 'degraded' | 'unavailable'
+    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable'
+    pythonModelStatus?: string
+    pythonLastLatencyMs?: number
+    pythonFallbackActive?: boolean
+    invalidClipsDropped?: number
+    pythonLastSuccessAt?: Date
+    pythonLastFailureReason?: string
+    pythonLastAnalyzeAt?: Date
+    pythonLastAnalyzeSuccessAt?: Date
+    pythonLastAnalyzeFailureReason?: string
+    pythonAnalyzeAttempts?: number
+    pythonAnalyzeSuccessCount?: number
+    pythonAnalyzeFailureCount?: number
+    lastSnapshotCapturedAt?: Date
+    lastSnapshotCaptureFailedReason?: string
+  secureBrowserMode?: 'seb' | 'standard'
+    secureBrowserTrust?: 'high' | 'reduced'
+    detectorMode?: 'python_primary' | 'browser_fallback'
   }
 }
 
@@ -76,6 +120,21 @@ const ProctoringEventSchema = new Schema<IProctoringEvent>({
   timestamp: { type: Date, default: Date.now },
   details:   { type: String, default: '' },
   evidenceImage: String,
+  evidenceId: String,
+  source: { type: String, enum: ['python', 'browser'] },
+  confidence: Number,
+  detectorDetails: {
+    sourceMode: { type: String, enum: ['python_primary', 'browser_fallback'] },
+    mobileConfidence: Number,
+    faceCount: Number,
+    gazeScore: Number,
+    identityDistance: Number,
+    analysisTickId: String,
+    snapshotCaptured: Boolean,
+    pythonAnalyzeStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable'] },
+    detector: String,
+    reason: String,
+  },
 })
 
 const AnswerSchema = new Schema<IAnswer>({
@@ -89,6 +148,7 @@ const EvidenceSnapshotSchema = new Schema(
     type: { type: String, enum: ['identity', 'incident', 'interval'], required: true },
     timestamp: { type: Date, default: Date.now },
     imageUrl: { type: String, required: true },
+    evidenceId: String,
     details: { type: String, default: '' },
   },
   { _id: false }
@@ -107,6 +167,7 @@ const RecordingClipSchema = new Schema(
     timestamp: { type: Date, default: Date.now },
     mimeType: { type: String, required: true },
     clipUrl: { type: String, required: true },
+    evidenceId: String,
     durationMs: { type: Number, default: 0 },
   },
   { _id: false }
@@ -117,6 +178,9 @@ const PlagiarismFlagSchema = new Schema(
     questionId: { type: String, required: true },
     similarity: { type: Number, required: true },
     reason: { type: String, required: true },
+    source: { type: String, enum: ['heuristic', 'cross_submission'], default: 'heuristic' },
+    confidenceLabel: { type: String, enum: ['heuristic', 'high'], default: 'heuristic' },
+    matchedSubmissionId: String,
   },
   { _id: false }
 )
@@ -137,10 +201,15 @@ const SubmissionSchema = new Schema<ISubmission>(
     graceUsed:        { type: Boolean, default: false },
     graceExpiresAt:   Date,
     secureBrowserDetected: { type: Boolean, default: false },
+    secureBrowserMode: { type: String, enum: ['seb', 'standard'], default: 'standard' },
+    secureBrowserTrust: { type: String, enum: ['high', 'reduced'], default: 'reduced' },
     currentQuestionIndex: { type: Number, default: 0 },
     lastSavedAt: Date,
     questionOrder:    [{ type: String }],
     optionOrders:     [DeliveryOptionSchema],
+    identityBaselineEmbedding: [{ type: Number }],
+    identityBaselineCapturedAt: Date,
+    identityBaselineEvidenceId: String,
     evidenceSnapshots: [EvidenceSnapshotSchema],
     recordingClips:   [RecordingClipSchema],
     plagiarismScore:  { type: Number, default: 0 },
@@ -151,6 +220,25 @@ const SubmissionSchema = new Schema<ISubmission>(
       networkDisconnects: { type: Number, default: 0 },
       recordingSupported: { type: Boolean, default: false },
       audioMonitoringActive: { type: Boolean, default: false },
+      pythonServiceStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable'], default: 'unavailable' },
+      pythonAnalyzeStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable'], default: 'unavailable' },
+      pythonModelStatus: { type: String, default: '' },
+      pythonLastLatencyMs: { type: Number, default: 0 },
+      pythonFallbackActive: { type: Boolean, default: false },
+      invalidClipsDropped: { type: Number, default: 0 },
+      pythonLastSuccessAt: Date,
+      pythonLastFailureReason: { type: String, default: '' },
+      pythonLastAnalyzeAt: Date,
+      pythonLastAnalyzeSuccessAt: Date,
+      pythonLastAnalyzeFailureReason: { type: String, default: '' },
+      pythonAnalyzeAttempts: { type: Number, default: 0 },
+      pythonAnalyzeSuccessCount: { type: Number, default: 0 },
+      pythonAnalyzeFailureCount: { type: Number, default: 0 },
+      lastSnapshotCapturedAt: Date,
+      lastSnapshotCaptureFailedReason: { type: String, default: '' },
+      secureBrowserMode: { type: String, enum: ['seb', 'standard'], default: 'standard' },
+      secureBrowserTrust: { type: String, enum: ['high', 'reduced'], default: 'reduced' },
+      detectorMode: { type: String, enum: ['python_primary', 'browser_fallback'], default: 'browser_fallback' },
     },
   },
   { timestamps: true }

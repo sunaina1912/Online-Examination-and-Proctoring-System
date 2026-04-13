@@ -23,6 +23,13 @@
 # 1. Install deps
 npm install
 
+# 1.5 Download local face models (required for stable multi-face detection)
+npm run setup:face-models
+
+# 1.6 Install Python AI service deps
+python -m pip install -r python/requirements.txt
+# (includes tensorflow + tf-keras for DeepFace compatibility)
+
 # 2. Configure environment
 cp .env.local.example .env.local
 # Edit MONGODB_URI and NEXTAUTH_SECRET
@@ -32,6 +39,11 @@ npx tsx scripts/seed.ts
 
 # 4. Start dev server
 npm run dev
+
+# 4.1 Start Python proctoring service (separate terminal)
+npm run proctoring:python
+
+# If Python service was already running, restart it after dependency/model updates
 
 # 5. Open
 open http://localhost:3000

@@ -16,6 +16,13 @@ export async function GET(_: NextRequest, { params }: { params: { id: string } }
 
     // Strip correct answers for students
     if (role === 'student') {
+      const now = Date.now()
+      const start = exam.startTime ? new Date(exam.startTime).getTime() : null
+      const end = exam.endTime ? new Date(exam.endTime).getTime() : null
+      const available = exam.isActive && (!start || now >= start) && (!end || now <= end)
+      if (!available) {
+        return NextResponse.json({ error: 'Exam is not available for this user right now' }, { status: 403 })
+      }
       const safe = exam.toObject()
       safe.questions = safe.questions.map((q: any) => {
         const { correctAnswer, ...rest } = q

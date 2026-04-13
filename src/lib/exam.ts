@@ -139,9 +139,16 @@ function textSimilarity(a: string, b: string) {
 
 export function detectPlagiarism(
   answers: IAnswer[],
-  previousAnswers: Array<{ questionId: string; textAnswer?: string }>
+  previousAnswers: Array<{ questionId: string; textAnswer?: string; submissionId?: string }>
 ) {
-  const flags: Array<{ questionId: string; similarity: number; reason: string }> = []
+  const flags: Array<{
+    questionId: string
+    similarity: number
+    reason: string
+    source: 'heuristic' | 'cross_submission'
+    confidenceLabel: 'heuristic' | 'high'
+    matchedSubmissionId?: string
+  }> = []
   let maxSimilarity = 0
 
   for (const answer of answers) {
@@ -156,6 +163,8 @@ export function detectPlagiarism(
         questionId: answer.questionId,
         similarity: 0.7,
         reason: 'Contains common generated or copied boilerplate patterns',
+        source: 'heuristic',
+        confidenceLabel: 'heuristic',
       })
       maxSimilarity = Math.max(maxSimilarity, 70)
     }
@@ -170,6 +179,9 @@ export function detectPlagiarism(
           questionId: answer.questionId,
           similarity,
           reason: `Highly similar to another submission (${similarityScore}% token overlap)`,
+          source: 'cross_submission',
+          confidenceLabel: 'high',
+          matchedSubmissionId: previous.submissionId,
         })
       }
     }

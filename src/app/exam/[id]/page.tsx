@@ -54,7 +54,7 @@ export default function ExamPage() {
 
   useEffect(() => {
     if (!exam) return
-    fetch('/api/submissions')
+    fetch(`/api/submissions?examId=${encodeURIComponent(id)}`)
       .then((response) => response.json())
       .then((data) => {
         const existing = (data.submissions ?? []).find(
@@ -116,6 +116,8 @@ export default function ExamPage() {
   }, [phase, proctoring.camActive, timer])
 
   const openSession = async (mode: 'start' | 'continue') => {
+    await proctoring.enterFullscreen()
+
     if (mode === 'continue' && resumeReady) {
       setSubmission(resumeReady.submission)
       setDeliveredQuestions(resumeReady.questions)

@@ -198,6 +198,11 @@ export default function SubmissionDetailPage() {
                   </div>
                 </div>
                 <p className="text-[11px] text-gray-500">{event.details}</p>
+                <p className="text-[10px] text-gray-600 mt-1 font-mono">
+                  {(event.detectorDetails?.sourceMode === 'python_primary' ? 'python' : 'browser')}
+                  {event.confidence !== undefined ? ` · ${Math.round(event.confidence * 100)}%` : ''}
+                  {event.detectorDetails?.detector ? ` · ${event.detectorDetails.detector}` : ''}
+                </p>
               </div>
             ))}
           </div>
@@ -211,11 +216,19 @@ export default function SubmissionDetailPage() {
           </div>
           <div className="divide-y divide-surface-3 text-sm">
             {[
-              ['Secure Browser', sub.secureBrowserDetected ? 'Detected' : 'Standard Browser'],
+              ['Secure Browser', sub.secureBrowserMode === 'seb' ? 'Safe Exam Browser' : 'Standard Browser'],
+              ['Browser Trust', sub.secureBrowserTrust ?? sub.sessionMetrics?.secureBrowserTrust ?? 'reduced'],
               ['Grace Used', sub.graceUsed ? 'Yes' : 'No'],
               ['Device Changes', sub.sessionMetrics?.deviceChanges ?? 0],
               ['Network Disconnects', sub.sessionMetrics?.networkDisconnects ?? 0],
               ['Audio Monitoring', sub.sessionMetrics?.audioMonitoringActive ? 'Active' : 'Unavailable'],
+              ['Python Service', sub.sessionMetrics?.pythonServiceStatus ?? 'unknown'],
+              ['Python Models', sub.sessionMetrics?.pythonModelStatus || 'unknown'],
+              ['Python Latency', `${sub.sessionMetrics?.pythonLastLatencyMs ?? 0} ms`],
+              ['Detector Mode', sub.sessionMetrics?.detectorMode === 'python_primary' ? 'Python Primary' : 'Browser Fallback'],
+              ['Python Last Success', sub.sessionMetrics?.pythonLastSuccessAt ? new Date(sub.sessionMetrics.pythonLastSuccessAt).toLocaleString('en-IN') : 'n/a'],
+              ['Python Last Failure', sub.sessionMetrics?.pythonLastFailureReason || 'none'],
+              ['Invalid Clips Dropped', sub.sessionMetrics?.invalidClipsDropped ?? 0],
             ].map(([label, value]) => (
               <div key={String(label)} className="px-5 py-3 flex items-center justify-between">
                 <span className="text-gray-500">{label}</span>
@@ -239,9 +252,12 @@ export default function SubmissionDetailPage() {
                   <span className="text-xs font-semibold text-warn">
                     Question {sub.examId?.questions?.findIndex((question: any) => question._id?.toString() === flag.questionId) + 1}
                   </span>
-                  <span className="text-[10px] font-mono text-gray-500">{Math.round((flag.similarity ?? 0) * 100)}%</span>
+                  <span className="text-[10px] font-mono text-gray-500">
+                    {Math.round((flag.similarity ?? 0) * 100)}% · {flag.confidenceLabel ?? 'heuristic'}
+                  </span>
                 </div>
                 <p className="text-xs text-gray-400">{flag.reason}</p>
+                <p className="text-[10px] text-gray-600 mt-1 font-mono">{flag.source ?? 'heuristic'}</p>
               </div>
             ))}
           </div>
@@ -258,6 +274,7 @@ export default function SubmissionDetailPage() {
               <div key={index} className="border border-surface-3 rounded-xl overflow-hidden bg-surface-2">
                 <img src={snapshot.imageUrl} alt={snapshot.details} className="w-full aspect-video object-cover" />
                 <div className="p-3">
+                  <p className="text-[10px] uppercase tracking-wide text-brand-400 mb-1">{snapshot.type}</p>
                   <p className="text-xs text-gray-300 mb-1">{snapshot.details}</p>
                   <p className="text-[10px] text-gray-500">{new Date(snapshot.timestamp).toLocaleString('en-IN')}</p>
                 </div>
@@ -267,13 +284,18 @@ export default function SubmissionDetailPage() {
         </div>
       )}
 
-      {sub.recordingClips?.length > 0 && (
+      {sub.recordingClips?.filter((clip: any) => clip?.clipUrl && (clip?.durationMs ?? 0) >= 1000).length > 0 && (
         <div className="mt-6 bg-surface-1 border border-surface-3 rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b border-surface-3">
+          <div className="px-5 py-4 border-b border-surface-3 flex items-center justify-between">
             <h2 className="font-semibold text-white text-sm">Review Clips</h2>
+            <span className="text-[11px] text-gray-500">
+              Invalid dropped: {sub.sessionMetrics?.invalidClipsDropped ?? 0}
+            </span>
           </div>
           <div className="grid lg:grid-cols-2 gap-4 p-5">
-            {sub.recordingClips.map((clip: any, index: number) => (
+            {sub.recordingClips
+              .filter((clip: any) => clip?.clipUrl && (clip?.durationMs ?? 0) >= 1000)
+              .map((clip: any, index: number) => (
               <div key={index} className="border border-surface-3 rounded-xl overflow-hidden bg-surface-2">
                 <video controls className="w-full aspect-video bg-black">
                   <source src={clip.clipUrl} type={clip.mimeType} />

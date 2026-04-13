@@ -6,6 +6,31 @@ import Submission from '@/models/Submission'
 import Exam from '@/models/Exam'
 import { buildExamDelivery, detectPlagiarism, getDeliveredQuestions, scoreSubmission } from '@/lib/exam'
 
+function isExamOpenForStudent(exam: any) {
+  if (!exam?.isActive) return false
+  const now = Date.now()
+  const start = exam.startTime ? new Date(exam.startTime).getTime() : null
+  const end = exam.endTime ? new Date(exam.endTime).getTime() : null
+  if (start && now < start) return false
+  if (end && now > end) return false
+  return true
+}
+
+function detectSecureBrowser(req: NextRequest) {
+  const userAgent = req.headers.get('user-agent') ?? ''
+  const sebHeaders = [
+    req.headers.get('x-safeexambrowser-configkeyhash'),
+    req.headers.get('x-safeexambrowser-requesthash'),
+  ].filter(Boolean)
+  const secureBrowserDetected = /safe exam browser|seb/i.test(userAgent) || sebHeaders.length > 0
+
+  return {
+    secureBrowserDetected,
+    secureBrowserMode: secureBrowserDetected ? 'seb' as const : 'standard' as const,
+    secureBrowserTrust: secureBrowserDetected ? 'high' as const : 'reduced' as const,
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -18,6 +43,7 @@ export async function POST(req: NextRequest) {
 
     // START exam
     if (action === 'start') {
+      const secureBrowser = detectSecureBrowser(req)
       const existing = await Submission.findOne({ examId, studentId, status: 'in_progress' })
       const exam = await Exam.findById(examId)
       if (!exam) return NextResponse.json({ error: 'Exam not found' }, { status: 404 })
@@ -39,6 +65,10 @@ export async function POST(req: NextRequest) {
         })
       }
 
+      if ((session.user as any).role === 'student' && !isExamOpenForStudent(exam)) {
+        return NextResponse.json({ error: 'Exam is not available for this user right now' }, { status: 403 })
+      }
+
       const delivery = buildExamDelivery(exam)
       const submission = await Submission.create({
         examId,
@@ -47,7 +77,14 @@ export async function POST(req: NextRequest) {
         questionOrder: delivery.questionOrder,
         optionOrders: delivery.optionOrders,
         graceExpiresAt: new Date(Date.now() + ((exam.duration * 60) + 30) * 1000),
-        secureBrowserDetected: /safe exam browser|seb/i.test(req.headers.get('user-agent') ?? ''),
+        secureBrowserDetected: secureBrowser.secureBrowserDetected,
+        secureBrowserMode: secureBrowser.secureBrowserMode,
+        secureBrowserTrust: secureBrowser.secureBrowserTrust,
+        sessionMetrics: {
+          secureBrowserMode: secureBrowser.secureBrowserMode,
+          secureBrowserTrust: secureBrowser.secureBrowserTrust,
+          detectorMode: 'browser_fallback',
+        },
       })
 
       return NextResponse.json(
@@ -66,6 +103,9 @@ export async function POST(req: NextRequest) {
     if (action === 'progress') {
       const submission = await Submission.findById(submissionId)
       if (!submission) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      if (submission.studentId.toString() !== studentId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
       if (submission.status !== 'in_progress') {
         return NextResponse.json({ error: 'Submission already finished' }, { status: 400 })
       }
@@ -84,15 +124,19 @@ export async function POST(req: NextRequest) {
     if (action === 'submit') {
       const submission = await Submission.findById(submissionId)
       if (!submission) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      if (submission.studentId.toString() !== studentId) {
+        return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      }
 
       const exam = await Exam.findById(submission.examId)
       if (!exam) return NextResponse.json({ error: 'Exam not found' }, { status: 404 })
 
-      const { score, percentage, passed } = scoreSubmission(exam, answers, {
+      const safeAnswers = Array.isArray(answers) ? answers : submission.answers ?? []
+      const { score, percentage, passed } = scoreSubmission(exam, safeAnswers, {
         questionOrder: submission.questionOrder,
         optionOrders: submission.optionOrders,
       })
-      const normalizedAnswers = answers.map((answer: any) => {
+      const normalizedAnswers = safeAnswers.map((answer: any) => {
         const optionOrder = submission.optionOrders?.find((item: any) => item.questionId === answer.questionId)?.order
         return {
           ...answer,
@@ -107,7 +151,12 @@ export async function POST(req: NextRequest) {
         _id: { $ne: submission._id },
         status: { $in: ['submitted', 'flagged'] },
       }).select('answers')
-      const previousAnswers = previousSubmissions.flatMap((item: any) => item.answers ?? [])
+      const previousAnswers = previousSubmissions.flatMap((item: any) =>
+        (item.answers ?? []).map((answer: any) => ({
+          ...answer,
+          submissionId: item._id?.toString?.(),
+        }))
+      )
       const { plagiarismScore, plagiarismFlags } = detectPlagiarism(normalizedAnswers, previousAnswers)
 
       submission.answers = normalizedAnswers
@@ -162,7 +211,9 @@ export async function GET(req: NextRequest) {
         .populate('examId', 'title totalMarks')
         .sort({ createdAt: -1 })
     } else {
-      submissions = await Submission.find({ studentId: userId })
+      const filter: any = { studentId: userId }
+      if (examId) filter.examId = examId
+      submissions = await Submission.find(filter)
         .populate('examId', 'title totalMarks duration')
         .sort({ createdAt: -1 })
     }
