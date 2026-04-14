@@ -429,11 +429,11 @@ export function useProctoring({
         const shouldFallback = pythonAnalyzeFailureStreakRef.current >= PYTHON_ANALYZE_FAILURE_THRESHOLD
         pythonFallbackActiveRef.current = shouldFallback
         updateMetrics({
-          pythonServiceStatus: shouldFallback ? 'unavailable' : 'degraded',
+          pythonServiceStatus: shouldFallback ? 'unavailable' : sessionMetricsRef.current.pythonServiceStatus,
           pythonFallbackActive: shouldFallback,
           pythonLastFailureReason: pythonFallbackReasonRef.current,
-          detectorMode: shouldFallback ? 'browser_fallback' : 'python_primary',
-          pythonAnalyzeStatus: shouldFallback ? 'unavailable' : 'degraded',
+          detectorMode: shouldFallback ? 'browser_fallback' : sessionMetricsRef.current.detectorMode,
+          pythonAnalyzeStatus: shouldFallback ? 'unavailable' : sessionMetricsRef.current.pythonAnalyzeStatus,
         })
         return null
       }
@@ -453,14 +453,14 @@ export function useProctoring({
         updateMetrics({
           pythonServiceStatus: shouldFallback
             ? ((payload.service_status as SessionMetrics['pythonServiceStatus']) || 'unavailable')
-            : 'degraded',
-          pythonAnalyzeStatus: shouldFallback ? 'unavailable' : 'degraded',
+            : ((payload.service_status as SessionMetrics['pythonServiceStatus']) || sessionMetricsRef.current.pythonServiceStatus),
+          pythonAnalyzeStatus: shouldFallback ? 'unavailable' : sessionMetricsRef.current.pythonAnalyzeStatus,
           pythonModelStatus: payload.model_status ?? '',
           pythonFallbackActive: shouldFallback,
           pythonLastFailureReason: payload.last_failure_reason ?? pythonFallbackReasonRef.current,
           pythonLastAnalyzeFailureReason: payload.last_failure_reason ?? pythonFallbackReasonRef.current,
           pythonAnalyzeFailureCount: sessionMetricsRef.current.pythonAnalyzeFailureCount + 1,
-          detectorMode: shouldFallback ? 'browser_fallback' : 'python_primary',
+          detectorMode: shouldFallback ? 'browser_fallback' : sessionMetricsRef.current.detectorMode,
         })
         return null
       }
@@ -490,13 +490,13 @@ export function useProctoring({
       const shouldFallback = pythonAnalyzeFailureStreakRef.current >= PYTHON_ANALYZE_FAILURE_THRESHOLD
       pythonFallbackActiveRef.current = shouldFallback
       updateMetrics({
-        pythonServiceStatus: shouldFallback ? 'unavailable' : 'degraded',
-        pythonAnalyzeStatus: shouldFallback ? 'unavailable' : 'degraded',
+        pythonServiceStatus: shouldFallback ? 'unavailable' : sessionMetricsRef.current.pythonServiceStatus,
+        pythonAnalyzeStatus: shouldFallback ? 'unavailable' : sessionMetricsRef.current.pythonAnalyzeStatus,
         pythonFallbackActive: shouldFallback,
         pythonLastFailureReason: pythonFallbackReasonRef.current,
         pythonLastAnalyzeFailureReason: pythonFallbackReasonRef.current,
         pythonAnalyzeFailureCount: sessionMetricsRef.current.pythonAnalyzeFailureCount + 1,
-        detectorMode: shouldFallback ? 'browser_fallback' : 'python_primary',
+        detectorMode: shouldFallback ? 'browser_fallback' : sessionMetricsRef.current.detectorMode,
       })
       return null
     } finally {
@@ -530,6 +530,11 @@ export function useProctoring({
         if (fallbackActive) {
           pythonFallbackActiveRef.current = true
           pythonFallbackReasonRef.current = payload.reason ?? 'health_probe_failed'
+        } else {
+          pythonFallbackActiveRef.current = false
+          pythonFallbackReasonRef.current = ''
+          pythonAnalyzeFailureStreakRef.current = 0
+          backendOutageLoggedRef.current = false
         }
 
         updateMetrics({

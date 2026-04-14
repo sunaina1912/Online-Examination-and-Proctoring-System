@@ -73,6 +73,18 @@ export function ProctoringOverlay({
   identitySnapshot,
 }: ProctoringOverlayProps) {
   const StatusIcon = status === 'flagged' ? ShieldX : status === 'warning' ? ShieldAlert : Shield
+  const displayPythonServiceStatus =
+    sessionMetrics.pythonServiceStatus === 'unavailable'
+      ? 'unavailable'
+      : sessionMetrics.pythonFallbackActive || sessionMetrics.detectorMode === 'browser_fallback'
+      ? sessionMetrics.pythonServiceStatus
+      : 'healthy'
+  const displayPythonAnalyzeStatus =
+    sessionMetrics.pythonAnalyzeStatus === 'unavailable'
+      ? 'unavailable'
+      : sessionMetrics.pythonFallbackActive || sessionMetrics.detectorMode === 'browser_fallback'
+      ? sessionMetrics.pythonAnalyzeStatus
+      : 'healthy'
 
   return (
     <div className="flex flex-col gap-3">
@@ -192,23 +204,23 @@ export function ProctoringOverlay({
           },
           {
             label: 'Python AI',
-            value: sessionMetrics.pythonServiceStatus,
+            value: displayPythonServiceStatus,
             icon: Shield,
             tone:
-              sessionMetrics.pythonServiceStatus === 'healthy'
+              displayPythonServiceStatus === 'healthy'
                 ? 'text-ok'
-                : sessionMetrics.pythonServiceStatus === 'degraded'
+                : displayPythonServiceStatus === 'degraded'
                 ? 'text-warn'
                 : 'text-danger',
           },
           {
             label: 'Analyze',
-            value: sessionMetrics.pythonAnalyzeStatus,
+            value: displayPythonAnalyzeStatus,
             icon: ShieldAlert,
             tone:
-              sessionMetrics.pythonAnalyzeStatus === 'healthy'
+              displayPythonAnalyzeStatus === 'healthy'
                 ? 'text-ok'
-                : sessionMetrics.pythonAnalyzeStatus === 'degraded'
+                : displayPythonAnalyzeStatus === 'degraded'
                 ? 'text-warn'
                 : 'text-danger',
           },
