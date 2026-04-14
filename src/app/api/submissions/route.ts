@@ -132,12 +132,15 @@ export async function POST(req: NextRequest) {
       if (!exam) return NextResponse.json({ error: 'Exam not found' }, { status: 404 })
 
       const safeAnswers = Array.isArray(answers) ? answers : submission.answers ?? []
+      const optionOrderMap = new Map(
+        (submission.optionOrders ?? []).map((item: any) => [item.questionId, item.order])
+      )
       const { score, percentage, passed } = scoreSubmission(exam, safeAnswers, {
         questionOrder: submission.questionOrder,
         optionOrders: submission.optionOrders,
       })
       const normalizedAnswers = safeAnswers.map((answer: any) => {
-        const optionOrder = submission.optionOrders?.find((item: any) => item.questionId === answer.questionId)?.order
+        const optionOrder = optionOrderMap.get(answer.questionId)
         return {
           ...answer,
           selectedOption:
@@ -146,18 +149,29 @@ export async function POST(req: NextRequest) {
               : answer.selectedOption,
         }
       })
-      const previousSubmissions = await Submission.find({
-        examId: submission.examId,
-        _id: { $ne: submission._id },
-        status: { $in: ['submitted', 'flagged'] },
-      }).select('answers')
-      const previousAnswers = previousSubmissions.flatMap((item: any) =>
-        (item.answers ?? []).map((answer: any) => ({
-          ...answer,
-          submissionId: item._id?.toString?.(),
-        }))
-      )
-      const { plagiarismScore, plagiarismFlags } = detectPlagiarism(normalizedAnswers, previousAnswers)
+      const hasTextAnswers = normalizedAnswers.some((answer: any) => typeof answer.textAnswer === 'string' && answer.textAnswer.trim())
+      let plagiarismScore = 0
+      let plagiarismFlags: any[] = []
+
+      if (hasTextAnswers) {
+        const previousSubmissions = await Submission.find({
+          examId: submission.examId,
+          _id: { $ne: submission._id },
+          status: { $in: ['submitted', 'flagged'] },
+        })
+          .select('answers')
+          .lean()
+
+        const previousAnswers = previousSubmissions.flatMap((item: any) =>
+          (item.answers ?? []).map((answer: any) => ({
+            ...answer,
+            submissionId: item._id?.toString?.(),
+          }))
+        )
+        const plagiarismResult = detectPlagiarism(normalizedAnswers, previousAnswers)
+        plagiarismScore = plagiarismResult.plagiarismScore
+        plagiarismFlags = plagiarismResult.plagiarismFlags
+      }
 
       submission.answers = normalizedAnswers
       submission.score = score

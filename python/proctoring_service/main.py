@@ -147,17 +147,61 @@ def get_phone_model():
         return None
 
 
-def estimate_gaze_offscreen_score(image: np.ndarray) -> float:
+@lru_cache(maxsize=1)
+def get_face_mesh():
     if mp is None:
-        return 0.0
+        return None
     try:
-        mesh = mp.solutions.face_mesh.FaceMesh(
+        return mp.solutions.face_mesh.FaceMesh(
             static_image_mode=True,
             max_num_faces=1,
             refine_landmarks=True,
             min_detection_confidence=0.5,
         )
-        rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    except Exception as error:
+        SERVICE_STATE["errors"]["mediapipe_face_mesh"] = str(error)
+        return None
+
+
+@lru_cache(maxsize=1)
+def get_face_detectors():
+    if mp is None:
+        return None, None
+    try:
+        short_range = mp.solutions.face_detection.FaceDetection(
+            model_selection=0,
+            min_detection_confidence=0.3,
+        )
+        full_range = mp.solutions.face_detection.FaceDetection(
+            model_selection=1,
+            min_detection_confidence=0.25,
+        )
+        return short_range, full_range
+    except Exception as error:
+        SERVICE_STATE["errors"]["mediapipe_face_detection"] = str(error)
+        return None, None
+
+
+def resize_for_processing(image: np.ndarray, max_side: int) -> np.ndarray:
+    height, width = image.shape[:2]
+    longest_side = max(height, width)
+    if longest_side <= max_side:
+        return image
+    scale = max_side / float(longest_side)
+    resized_width = max(1, int(width * scale))
+    resized_height = max(1, int(height * scale))
+    return cv2.resize(image, (resized_width, resized_height), interpolation=cv2.INTER_AREA)
+
+
+def estimate_gaze_offscreen_score(image: np.ndarray) -> float:
+    if mp is None:
+        return 0.0
+    try:
+        mesh = get_face_mesh()
+        if mesh is None:
+            return 0.0
+        working_image = resize_for_processing(image, 640)
+        rgb = cv2.cvtColor(working_image, cv2.COLOR_BGR2RGB)
         result = mesh.process(rgb)
         if not result.multi_face_landmarks:
             return 0.0
@@ -174,7 +218,8 @@ def estimate_gaze_offscreen_score(image: np.ndarray) -> float:
 
 
 def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    working_image = resize_for_processing(image, 960)
+    gray = cv2.cvtColor(working_image, cv2.COLOR_BGR2GRAY)
     normalized_gray = cv2.equalizeHist(gray)
     faces = get_face_cascade().detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(32, 32))
     normalized_faces = get_face_cascade().detectMultiScale(
@@ -221,14 +266,16 @@ def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
     mediapipe_count = 0
     if mp is not None:
         try:
-            rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            short_range = mp.solutions.face_detection.FaceDetection(model_selection=0, min_detection_confidence=0.3)
-            full_range = mp.solutions.face_detection.FaceDetection(model_selection=1, min_detection_confidence=0.25)
-            short_result = short_range.process(rgb)
-            full_result = full_range.process(rgb)
-            short_count = len(short_result.detections) if short_result.detections else 0
-            full_count = len(full_result.detections) if full_result.detections else 0
-            mediapipe_count = max(short_count, full_count)
+            rgb = cv2.cvtColor(working_image, cv2.COLOR_BGR2RGB)
+            short_range, full_range = get_face_detectors()
+            if short_range is not None:
+                short_result = short_range.process(rgb)
+                short_count = len(short_result.detections) if short_result.detections else 0
+                mediapipe_count = max(mediapipe_count, short_count)
+            if full_range is not None:
+                full_result = full_range.process(rgb)
+                full_count = len(full_result.detections) if full_result.detections else 0
+                mediapipe_count = max(mediapipe_count, full_count)
         except Exception as error:
             SERVICE_STATE["errors"]["mediapipe_face_detection"] = str(error)
 
@@ -247,8 +294,9 @@ def extract_embedding(image: np.ndarray) -> Optional[List[float]]:
     if DeepFace is None:
         return None
     try:
+        working_image = resize_for_processing(image, 640)
         reps = DeepFace.represent(
-            img_path=image,
+            img_path=working_image,
             model_name="Facenet512",
             detector_backend="opencv",
             enforce_detection=False,
@@ -327,7 +375,8 @@ def detect_mobile_phone(image: np.ndarray, faces_count: int) -> Dict[str, Any]:
         }
 
     try:
-        results = model.predict(source=image, conf=0.1, verbose=False)
+        working_image = resize_for_processing(image, 640)
+        results = model.predict(source=working_image, conf=0.1, verbose=False)
         best_confidence = 0.0
         for result in results:
             boxes = getattr(result, "boxes", None)
@@ -419,12 +468,26 @@ def analyze(payload: AnalyzeRequest):
         LOGGER.warning("analyze_request_invalid_payload %s", error)
         raise HTTPException(status_code=400, detail=f"Invalid image payload: {error}")
 
+    timings: Dict[str, int] = {}
+
+    stage_started = time.time()
     face_result = detect_faces_count(image)
+    timings["faces_ms"] = int((time.time() - stage_started) * 1000)
     faces_count = int(face_result.get("count", 0))
+
+    stage_started = time.time()
     embedding = extract_embedding(image)
+    timings["embedding_ms"] = int((time.time() - stage_started) * 1000)
     identity_distance = cosine_distance(payload.baseline_embedding or [], embedding or [])
+
+    stage_started = time.time()
     gaze_score = estimate_gaze_offscreen_score(image)
+    timings["gaze_ms"] = int((time.time() - stage_started) * 1000)
+
+    stage_started = time.time()
     mobile_result = detect_mobile_phone(image, faces_count)
+    timings["mobile_ms"] = int((time.time() - stage_started) * 1000)
+
     latency_ms = int((time.time() - started) * 1000)
 
     SERVICE_STATE["status"] = service_status()
@@ -442,6 +505,7 @@ def analyze(payload: AnalyzeRequest):
                 "gaze_score": gaze_score,
                 "mobile_detected": bool(mobile_result.get("detected")),
                 "mobile_confidence": float(mobile_result.get("confidence", 0.0)),
+                "timings": timings,
             },
             ensure_ascii=True,
             separators=(",", ":"),
@@ -469,6 +533,7 @@ def analyze(payload: AnalyzeRequest):
             "gaze_detector": "mediapipe" if mp is not None else "unavailable",
             "mobile_detector": mobile_result.get("detector", "unknown"),
             "mobile_reason": mobile_result.get("reason"),
+            "timings_ms": timings,
         },
     )
 

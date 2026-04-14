@@ -39,6 +39,7 @@ export default function ExamPage() {
   const [current, setCurrent] = useState(0)
   const [result, setResult] = useState<any>(null)
   const [submitting, setSubmit] = useState(false)
+  const [openingSession, setOpeningSession] = useState(false)
   const [resumeReady, setResumeReady] = useState<ResumeState | null>(null)
   const submittingRef = useRef(false)
 
@@ -92,16 +93,21 @@ export default function ExamPage() {
     if (submittingRef.current || !submission?._id) return
     submittingRef.current = true
     setSubmit(true)
-    proctoring.stopProctoring()
+    proctoring.stopProctoring({ flushRecording: false })
 
-    const response = await fetch('/api/submissions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'submit', submissionId: submission._id, answers }),
-    })
-    const data = await response.json()
-    setResult(data)
-    setPhase('result')
+    try {
+      const response = await fetch('/api/submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'submit', submissionId: submission._id, answers }),
+      })
+      const data = await response.json()
+      setResult(data)
+      setPhase('result')
+    } finally {
+      setSubmit(false)
+      submittingRef.current = false
+    }
   }, [answers, proctoring, submission])
 
   const timer = useExamTimer(exam?.duration ?? 60, submitExam, {
@@ -116,45 +122,54 @@ export default function ExamPage() {
   }, [phase, proctoring.camActive, timer])
 
   const openSession = async (mode: 'start' | 'continue') => {
-    await proctoring.enterFullscreen()
+    if (openingSession) return
+    setOpeningSession(true)
 
-    if (mode === 'continue' && resumeReady) {
-      setSubmission(resumeReady.submission)
-      setDeliveredQuestions(resumeReady.questions)
+    try {
+      if (mode === 'continue' && resumeReady) {
+        await proctoring.enterFullscreen()
+        setSubmission(resumeReady.submission)
+        setDeliveredQuestions(resumeReady.questions)
+        setAnswers(
+          resumeReady.questions.map((question: any) =>
+            resumeReady.answers.find((answer) => answer.questionId === question._id) ?? { questionId: question._id }
+          )
+        )
+        setCurrent(resumeReady.currentQuestionIndex ?? 0)
+        setPhase('exam')
+        return
+      }
+
+      const [, response] = await Promise.all([
+        proctoring.enterFullscreen(),
+        fetch('/api/submissions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ examId: id, action: 'start' }),
+        }),
+      ])
+      const data = await response.json()
+      const questions = data.deliveredQuestions ?? exam.questions ?? []
+      setSubmission(data.submission)
+      setDeliveredQuestions(questions)
       setAnswers(
-        resumeReady.questions.map((question: any) =>
-          resumeReady.answers.find((answer) => answer.questionId === question._id) ?? { questionId: question._id }
+        questions.map((question: any) =>
+          data.answers?.find((answer: Answer) => answer.questionId === question._id) ?? { questionId: question._id }
         )
       )
-      setCurrent(resumeReady.currentQuestionIndex ?? 0)
+      setCurrent(data.currentQuestionIndex ?? 0)
+      setResumeReady({
+        submission: data.submission,
+        questions,
+        answers: data.answers ?? [],
+        currentQuestionIndex: data.currentQuestionIndex ?? 0,
+        remainingSeconds: data.remainingSeconds ?? exam.duration * 60,
+        resumed: Boolean(data.resumed),
+      })
       setPhase('exam')
-      return
+    } finally {
+      setOpeningSession(false)
     }
-
-    const response = await fetch('/api/submissions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ examId: id, action: 'start' }),
-    })
-    const data = await response.json()
-    const questions = data.deliveredQuestions ?? exam.questions ?? []
-    setSubmission(data.submission)
-    setDeliveredQuestions(questions)
-    setAnswers(
-      questions.map((question: any) =>
-        data.answers?.find((answer: Answer) => answer.questionId === question._id) ?? { questionId: question._id }
-      )
-    )
-    setCurrent(data.currentQuestionIndex ?? 0)
-    setResumeReady({
-      submission: data.submission,
-      questions,
-      answers: data.answers ?? [],
-      currentQuestionIndex: data.currentQuestionIndex ?? 0,
-      remainingSeconds: data.remainingSeconds ?? exam.duration * 60,
-      resumed: Boolean(data.resumed),
-    })
-    setPhase('exam')
   }
 
   const setAnswer = (questionId: string, patch: Partial<Answer>) =>
@@ -228,16 +243,18 @@ export default function ExamPage() {
               {resumeReady?.resumed && (
                 <button
                   onClick={() => openSession('continue')}
+                  disabled={openingSession}
                   className="w-full bg-ok hover:bg-ok/90 text-white py-3 rounded-xl font-semibold text-sm transition-colors"
                 >
-                  Continue Writing
+                  {openingSession ? 'Opening...' : 'Continue Writing'}
                 </button>
               )}
               <button
                 onClick={() => openSession(resumeReady?.resumed ? 'continue' : 'start')}
-                className="w-full bg-brand-600 hover:bg-brand-500 text-white py-3 rounded-xl font-semibold text-sm transition-colors"
+                disabled={openingSession}
+                className="w-full bg-brand-600 hover:bg-brand-500 disabled:opacity-70 text-white py-3 rounded-xl font-semibold text-sm transition-colors"
               >
-                {resumeReady?.resumed ? 'Open Saved Session' : 'I agree - Start Exam'}
+                {openingSession ? 'Opening...' : resumeReady?.resumed ? 'Open Saved Session' : 'I agree - Start Exam'}
               </button>
               {resumeReady?.resumed && (
                 <p className="text-[11px] text-gray-500 text-center">

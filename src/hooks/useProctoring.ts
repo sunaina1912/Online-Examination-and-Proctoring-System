@@ -134,8 +134,8 @@ const INITIAL_METRICS: SessionMetrics = {
 }
 const MIN_CLIP_DURATION_MS = 1200
 const MIN_CLIP_SIZE_BYTES = 24 * 1024
-const CLIP_SEGMENT_MS = 10000
-const ANALYZE_INTERVAL_MS = 1800
+const CLIP_SEGMENT_MS = 15000
+const ANALYZE_INTERVAL_MS = 2500
 const SNAPSHOT_FAILURE_THRESHOLD = 5
 const PYTHON_ANALYZE_FAILURE_THRESHOLD = 3
 
@@ -189,6 +189,7 @@ export function useProctoring({
   const pythonAnalyzeFailureStreakRef = useRef(0)
   const analyzeRequestInFlightRef = useRef(false)
   const sessionMetricsRef = useRef(INITIAL_METRICS)
+  const recorderShouldFinalizeRef = useRef(true)
 
   useEffect(() => {
     sessionMetricsRef.current = sessionMetrics
@@ -207,13 +208,13 @@ export function useProctoring({
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) return null
 
     const canvas = document.createElement('canvas')
-    const targetWidth = Math.min(960, video.videoWidth || 960)
+    const targetWidth = Math.min(720, video.videoWidth || 720)
     canvas.width = targetWidth
     canvas.height = Math.round((video.videoHeight / Math.max(video.videoWidth, 1)) * targetWidth)
     const context = canvas.getContext('2d')
     if (!context) return null
     context.drawImage(video, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.92)
+    return canvas.toDataURL('image/jpeg', 0.78)
   }, [])
 
   const waitForVideoReady = useCallback(async () => {
@@ -679,7 +680,7 @@ export function useProctoring({
     if (!enabled) return
 
     navigator.mediaDevices?.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 540 } },
       audio: true,
     })
       .then(async (stream) => {
@@ -706,25 +707,27 @@ export function useProctoring({
         }
 
         if (videoReady) {
-          const snapshot = captureSnapshot()
-          if (snapshot) {
-            setIdentitySnapshot(snapshot)
-            if (!identityLoggedRef.current) {
-              identityLoggedRef.current = true
-              void uploadEvidence({
-                snapshot: {
-                  type: 'identity',
-                  imageUrl: snapshot,
-                  details: 'Initial candidate identity snapshot',
-                },
-              })
+          window.setTimeout(async () => {
+            const snapshot = captureSnapshot()
+            if (snapshot) {
+              setIdentitySnapshot(snapshot)
+              if (!identityLoggedRef.current) {
+                identityLoggedRef.current = true
+                void uploadEvidence({
+                  snapshot: {
+                    type: 'identity',
+                    imageUrl: snapshot,
+                    details: 'Initial candidate identity snapshot',
+                  },
+                })
+              }
             }
-          }
 
-          const initialDetections = await getFaceApiDetections()
-          if (initialDetections?.[0]?.descriptor) {
-            baselineDescriptorRef.current = initialDetections[0].descriptor
-          }
+            const initialDetections = await getFaceApiDetections()
+            if (initialDetections?.[0]?.descriptor) {
+              baselineDescriptorRef.current = initialDetections[0].descriptor
+            }
+          }, 250)
         }
 
         const devices = await navigator.mediaDevices.enumerateDevices()
@@ -766,7 +769,7 @@ export function useProctoring({
                 const wallDurationMs = Math.max(0, Date.now() - startedAt)
                 const chunks = recordingChunksRef.current
                 recordingChunksRef.current = []
-                if (chunks.length > 0) {
+                if (chunks.length > 0 && recorderShouldFinalizeRef.current) {
                   const clipBlob = new Blob(chunks, { type: selectedMimeType || 'video/webm' })
                   void (async () => {
                     const mediaDurationMs = await getBlobDurationMs(clipBlob)
@@ -826,14 +829,18 @@ export function useProctoring({
               recordingRef.current = recorder
             }
 
-            recordingEnabledRef.current = true
-            startRecorderSegment()
-            recordingRotateRef.current = setInterval(() => {
-              const activeRecorder = recordingRef.current
-              if (activeRecorder && activeRecorder.state === 'recording') {
-                activeRecorder.stop()
-              }
-            }, CLIP_SEGMENT_MS)
+            window.setTimeout(() => {
+              if (!stream.active) return
+              recorderShouldFinalizeRef.current = true
+              recordingEnabledRef.current = true
+              startRecorderSegment()
+              recordingRotateRef.current = setInterval(() => {
+                const activeRecorder = recordingRef.current
+                if (activeRecorder && activeRecorder.state === 'recording') {
+                  activeRecorder.stop()
+                }
+              }, CLIP_SEGMENT_MS)
+            }, 300)
           } catch {
             setRecorderSupported(false)
             updateMetrics({ recordingSupported: false })
@@ -1525,9 +1532,10 @@ export function useProctoring({
     }
   }, [analyzeFrameWithBackend, camActive, captureSnapshot, emitWithHysteresis, enabled, getFaceApiDetections, getNativeFaceDetections, identitySnapshot, loadObjectDetector, logEvent, uploadEvidence])
 
-  const stopProctoring = useCallback(() => {
+  const stopProctoring = useCallback((options?: { flushRecording?: boolean }) => {
     intervalsRef.current.forEach(clearInterval)
     recordingEnabledRef.current = false
+    recorderShouldFinalizeRef.current = options?.flushRecording ?? true
     if (recordingRotateRef.current) {
       clearInterval(recordingRotateRef.current)
       recordingRotateRef.current = null
