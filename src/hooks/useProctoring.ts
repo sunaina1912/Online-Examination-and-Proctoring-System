@@ -470,7 +470,7 @@ export function useProctoring({
       pythonAnalyzeFailureStreakRef.current = 0
       updateMetrics({
         pythonServiceStatus: (payload.service_status as SessionMetrics['pythonServiceStatus']) || 'healthy',
-        pythonAnalyzeStatus: payload.analysis_ok === false ? 'degraded' : 'healthy',
+        pythonAnalyzeStatus: 'healthy',
         pythonModelStatus: payload.model_status ?? '',
         pythonLastLatencyMs: payload.latency_ms ?? 0,
         pythonFallbackActive: false,
@@ -700,7 +700,6 @@ export function useProctoring({
 
         if (!videoReady) {
           updateMetrics({
-            pythonAnalyzeStatus: 'degraded',
             lastSnapshotCaptureFailedReason: 'video_attach_failed',
           })
           console.warn('proctoring.video_attach_failed')
@@ -1124,7 +1123,6 @@ export function useProctoring({
         snapshotFailureCountRef.current += 1
         console.warn('proctoring.snapshot_failed')
         updateMetrics({
-          pythonAnalyzeStatus: 'degraded',
           lastSnapshotCaptureFailedReason: 'video_not_ready',
           pythonLastAnalyzeFailureReason: 'snapshot_failed',
           pythonAnalyzeFailureCount: sessionMetricsRef.current.pythonAnalyzeFailureCount + 1,
