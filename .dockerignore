@@ -1,0 +1,10 @@
+node_modules
+.next
+npm-debug.log
+.git
+.gitignore
+.env.local
+.env.docker
+python/.runtime
+python/__pycache__
+python/proctoring_service/__pycache__

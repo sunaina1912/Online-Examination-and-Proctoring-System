@@ -51,6 +51,52 @@ open http://localhost:3000
 
 ---
 
+## Docker Compose Setup
+
+Use this when the laptop has broken local Python or TensorFlow/MediaPipe installs and you want a cleaner setup.
+
+```bash
+# 1. Create Docker env file
+cp .env.docker.example .env.docker
+
+# 2. Set a real NEXTAUTH_SECRET in .env.docker
+
+# 3. Build and start everything
+docker compose up --build -d
+
+# 4. Seed sample users + exam
+docker compose --profile seed run --rm seed
+
+# 5. Open the app
+open http://localhost:3000
+```
+
+Services started by Compose:
+- `web` on `http://localhost:3000`
+- `python-ai` on `http://localhost:8001`
+- `mongo` on `mongodb://localhost:27017`
+
+Inside Docker, the app automatically uses:
+- `MONGODB_URI=mongodb://mongo:27017/proctorx`
+- `PYTHON_PROCTORING_URL=http://python-ai:8001`
+
+Useful commands:
+
+```bash
+docker compose logs -f web
+docker compose logs -f python-ai
+docker compose down
+```
+
+If the Python AI still shows `degraded` inside Docker, check:
+
+```bash
+docker compose logs -f python-ai
+curl http://localhost:8001/health
+```
+
+---
+
 ## Default Credentials (after seed)
 
 | Role     | Email                    | Password   |
