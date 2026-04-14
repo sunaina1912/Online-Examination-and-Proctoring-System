@@ -21,3 +21,4 @@ COPY --from=builder /app/package-lock.json ./package-lock.json
 COPY --from=deps /app/node_modules ./node_modules
 EXPOSE 3000
 CMD ["npm", "run", "start"]
+  
