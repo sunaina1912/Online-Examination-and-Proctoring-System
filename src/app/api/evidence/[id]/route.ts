@@ -5,6 +5,12 @@ import dbConnect from '@/lib/db'
 import EvidenceBlob from '@/models/EvidenceBlob'
 import Submission from '@/models/Submission'
 
+function toArrayBuffer(buffer: Buffer) {
+  const copy = new Uint8Array(buffer.byteLength)
+  copy.set(buffer)
+  return copy.buffer
+}
+
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions)
@@ -46,7 +52,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       }
 
       const chunk = blob.data.subarray(start, end + 1)
-      return new NextResponse(chunk, {
+      return new NextResponse(toArrayBuffer(chunk), {
         status: 206,
         headers: {
           'Content-Type': blob.mimeType,
@@ -58,7 +64,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       })
     }
 
-    return new NextResponse(blob.data, {
+    return new NextResponse(toArrayBuffer(blob.data), {
       status: 200,
       headers: {
         'Content-Type': blob.mimeType,
