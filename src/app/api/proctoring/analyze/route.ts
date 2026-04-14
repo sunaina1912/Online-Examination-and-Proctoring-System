@@ -136,14 +136,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const now = Date.now()
-    if (now < serviceDownUntil) {
-      return fallback(lastFailureReason)
-    }
-
     const serviceUrl = process.env.PYTHON_PROCTORING_URL?.trim()
     if (!serviceUrl) {
       return fallback('python_url_not_configured')
+    }
+
+    const now = Date.now()
+    if (now < serviceDownUntil) {
+      const cooldownHealth = await checkPythonHealth(serviceUrl)
+      if (!cooldownHealth.reachable) {
+        lastFailureReason = cooldownHealth.reason ?? lastFailureReason
+        return fallback(lastFailureReason)
+      }
+
+      // The service recovered before the cooldown elapsed, so resume Python analysis immediately.
+      serviceDownUntil = 0
+      lastFailureReason = 'recovered'
     }
 
     const health = await checkPythonHealth(serviceUrl)
@@ -213,6 +221,9 @@ export async function POST(req: NextRequest) {
       if (fallbackRequired) {
         serviceDownUntil = Date.now() + COOLDOWN_MS
         lastFailureReason = 'python_analyze_unavailable'
+      } else {
+        serviceDownUntil = 0
+        lastFailureReason = 'healthy'
       }
       return NextResponse.json({
         fallbackRequired,
