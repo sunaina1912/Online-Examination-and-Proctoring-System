@@ -136,6 +136,7 @@ const MIN_CLIP_DURATION_MS = 1200
 const MIN_CLIP_SIZE_BYTES = 24 * 1024
 const CLIP_SEGMENT_MS = 15000
 const ANALYZE_INTERVAL_MS = 2500
+const PYTHON_HEALTH_POLL_MS = 5000
 const SNAPSHOT_FAILURE_THRESHOLD = 5
 const PYTHON_ANALYZE_FAILURE_THRESHOLD = 3
 
@@ -509,15 +510,20 @@ export function useProctoring({
 
     let cancelled = false
 
-    void fetch('/api/proctoring/analyze', { method: 'GET' })
-      .then(async (response) => {
+    const syncPythonHealth = async () => {
+      try {
+        const response = await fetch('/api/proctoring/analyze', { method: 'GET', cache: 'no-store' })
         if (!response.ok) {
           if (cancelled) return
+          pythonFallbackActiveRef.current = true
+          pythonFallbackReasonRef.current = `health_http_${response.status}`
           updateMetrics({
             pythonServiceStatus: 'unavailable',
             pythonAnalyzeStatus: 'unavailable',
             pythonModelStatus: '',
             pythonFallbackActive: true,
+            pythonLastFailureReason: pythonFallbackReasonRef.current,
+            detectorMode: 'browser_fallback',
           })
           return
         }
@@ -547,8 +553,7 @@ export function useProctoring({
           pythonLastFailureReason: fallbackActive ? (payload.last_failure_reason ?? pythonFallbackReasonRef.current) : '',
           detectorMode: fallbackActive ? 'browser_fallback' : 'python_primary',
         })
-      })
-      .catch(() => {
+      } catch {
         if (cancelled) return
         pythonFallbackActiveRef.current = true
         pythonFallbackReasonRef.current = 'health_probe_network_error'
@@ -560,10 +565,17 @@ export function useProctoring({
           pythonLastFailureReason: pythonFallbackReasonRef.current,
           detectorMode: 'browser_fallback',
         })
-      })
+      }
+    }
+
+    void syncPythonHealth()
+    const healthInterval = window.setInterval(() => {
+      void syncPythonHealth()
+    }, PYTHON_HEALTH_POLL_MS)
 
     return () => {
       cancelled = true
+      window.clearInterval(healthInterval)
     }
   }, [enabled, updateMetrics])
 

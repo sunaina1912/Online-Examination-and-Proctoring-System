@@ -221,7 +221,7 @@ def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
     working_image = resize_for_processing(image, 960)
     gray = cv2.cvtColor(working_image, cv2.COLOR_BGR2GRAY)
     normalized_gray = cv2.equalizeHist(gray)
-    faces = get_face_cascade().detectMultiScale(gray, scaleFactor=1.1, minNeighbors=4, minSize=(32, 32))
+    faces = get_face_cascade().detectMultiScale(gray, scaleFactor=1.08, minNeighbors=3, minSize=(28, 28))
     normalized_faces = get_face_cascade().detectMultiScale(
         normalized_gray,
         scaleFactor=1.08,
@@ -262,6 +262,7 @@ def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
             tile_counts.append(max(int(len(tile_faces)), int(len(tile_faces_eq))))
 
     tile_face_count = max(tile_counts) if tile_counts else 0
+    populated_tiles = sum(1 for count in tile_counts if count >= 1)
 
     mediapipe_count = 0
     if mp is not None:
@@ -280,12 +281,15 @@ def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
             SERVICE_STATE["errors"]["mediapipe_face_detection"] = str(error)
 
     best_count = max(cascade_count, mediapipe_count, tile_face_count)
+    if best_count < 2 and populated_tiles >= 2:
+        best_count = 2
     detector_used = "hybrid_face_count_tiled"
     return {
         "count": best_count,
         "cascade_count": cascade_count,
         "mediapipe_count": mediapipe_count,
         "tile_face_count": tile_face_count,
+        "populated_tiles": populated_tiles,
         "detector": detector_used,
     }
 
@@ -312,9 +316,6 @@ def extract_embedding(image: np.ndarray) -> Optional[List[float]]:
 
 
 def detect_phone_occluder_heuristic(image: np.ndarray, faces_count: int) -> Dict[str, Any]:
-    if faces_count < 1:
-        return {"detected": False, "confidence": 0.0, "detector": "phone_occluder_heuristic"}
-
     height, width = image.shape[:2]
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -324,7 +325,7 @@ def detect_phone_occluder_heuristic(image: np.ndarray, faces_count: int) -> Dict
     best_confidence = 0.0
     for contour in contours:
         area = cv2.contourArea(contour)
-        if area < width * height * 0.01 or area > width * height * 0.22:
+        if area < width * height * 0.006 or area > width * height * 0.28:
             continue
 
         x, y, w, h = cv2.boundingRect(contour)
@@ -332,12 +333,12 @@ def detect_phone_occluder_heuristic(image: np.ndarray, faces_count: int) -> Dict
             continue
 
         aspect_ratio = w / float(h)
-        if not (0.35 <= aspect_ratio <= 0.85):
+        if not (0.3 <= aspect_ratio <= 0.95):
             continue
 
         center_x = (x + (w / 2.0)) / max(width, 1)
         center_y = (y + (h / 2.0)) / max(height, 1)
-        if not (0.2 <= center_x <= 0.8 and 0.18 <= center_y <= 0.85):
+        if not (0.12 <= center_x <= 0.88 and 0.12 <= center_y <= 0.9):
             continue
 
         roi = gray[y:y + h, x:x + w]
@@ -353,10 +354,12 @@ def detect_phone_occluder_heuristic(image: np.ndarray, faces_count: int) -> Dict
             0.20 * max(0.0, min(1.0, size_score)) +
             0.20 * (1.0 - min(1.0, abs(center_x - 0.5) * 1.5))
         )
+        if faces_count >= 1:
+            confidence = min(1.0, confidence + 0.08)
         best_confidence = max(best_confidence, confidence)
 
     return {
-        "detected": best_confidence >= 0.45,
+        "detected": best_confidence >= 0.32,
         "confidence": best_confidence,
         "detector": "phone_occluder_heuristic",
         "reason": "rectangular_occluder_near_face",
@@ -501,6 +504,7 @@ def analyze(payload: AnalyzeRequest):
                 "cascade_faces_count": int(face_result.get("cascade_count", 0)),
                 "mediapipe_faces_count": int(face_result.get("mediapipe_count", 0)),
                 "tile_faces_count": int(face_result.get("tile_face_count", 0)),
+                "populated_tiles": int(face_result.get("populated_tiles", 0)),
                 "embedding_ready": embedding is not None,
                 "gaze_score": gaze_score,
                 "mobile_detected": bool(mobile_result.get("detected")),
@@ -529,6 +533,7 @@ def analyze(payload: AnalyzeRequest):
             "face_count_cascade": int(face_result.get("cascade_count", 0)),
             "face_count_mediapipe": int(face_result.get("mediapipe_count", 0)),
             "face_count_tiles": int(face_result.get("tile_face_count", 0)),
+            "face_count_populated_tiles": int(face_result.get("populated_tiles", 0)),
             "embedding_model": "Facenet512" if embedding else "unavailable",
             "gaze_detector": "mediapipe" if mp is not None else "unavailable",
             "mobile_detector": mobile_result.get("detector", "unknown"),
