@@ -44,7 +44,7 @@ interface SessionMetrics {
   recordingSupported: boolean
   audioMonitoringActive: boolean
   pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable'
-  pythonAnalyzeStatus: 'idle' | 'healthy' | 'degraded' | 'unavailable'
+  pythonAnalyzeStatus: 'healthy' | 'degraded' | 'unavailable'
   pythonModelStatus: string
   pythonLastLatencyMs: number
   pythonFallbackActive: boolean
@@ -113,7 +113,7 @@ const INITIAL_METRICS: SessionMetrics = {
   recordingSupported: false,
   audioMonitoringActive: false,
   pythonServiceStatus: 'unavailable',
-  pythonAnalyzeStatus: 'idle',
+  pythonAnalyzeStatus: 'unavailable',
   pythonModelStatus: '',
   pythonLastLatencyMs: 0,
   pythonFallbackActive: false,
@@ -139,6 +139,7 @@ const ANALYZE_INTERVAL_MS = 2500
 const PYTHON_HEALTH_POLL_MS = 5000
 const SNAPSHOT_FAILURE_THRESHOLD = 5
 const PYTHON_ANALYZE_FAILURE_THRESHOLD = 3
+const OBJECT_ID_PATTERN = /^[a-f\d]{24}$/i
 
 export function useProctoring({
   submissionId,
@@ -146,6 +147,7 @@ export function useProctoring({
   onFlagged,
   enabled = true,
 }: UseProctoringOptions) {
+  const canPersist = OBJECT_ID_PATTERN.test(submissionId)
   const [riskScore, setRiskScore] = useState(0)
   const [status, setStatus] = useState<'clean' | 'warning' | 'flagged'>('clean')
   const [events, setEvents] = useState<ProctoringEvent[]>([])
@@ -293,7 +295,7 @@ export function useProctoring({
   }), [])
 
   const persistDataUrl = useCallback(async (dataUrl: string, kind: 'snapshot' | 'clip') => {
-    if (!submissionId) return null
+    if (!OBJECT_ID_PATTERN.test(submissionId)) return null
     try {
       const response = await fetch('/api/evidence', {
         method: 'POST',
@@ -375,7 +377,7 @@ export function useProctoring({
       const faceapi = await loadFaceApi()
       if (!faceapi) return null
       return await faceapi
-        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 }))
+        .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.3 }))
         .withFaceLandmarks(true)
         .withFaceDescriptors()
     } catch {
@@ -408,7 +410,7 @@ export function useProctoring({
   }, [])
 
   const analyzeFrameWithBackend = useCallback(async (imageDataUrl: string): Promise<PythonAnalysisPayload | null> => {
-    if (!submissionId) return null
+    if (!OBJECT_ID_PATTERN.test(submissionId)) return null
     if (analyzeRequestInFlightRef.current) {
       return null
     }
@@ -506,7 +508,7 @@ export function useProctoring({
   }, [submissionId, updateMetrics])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !canPersist) return
 
     let cancelled = false
 
@@ -577,10 +579,10 @@ export function useProctoring({
       cancelled = true
       window.clearInterval(healthInterval)
     }
-  }, [enabled, updateMetrics])
+  }, [canPersist, enabled, updateMetrics])
 
   const uploadEvidence = useCallback(async (payload: { snapshot?: StoredSnapshotPayload; recordingClip?: { clipUrl: string; evidenceId?: string; mimeType: string; durationMs: number } }) => {
-    if (!submissionId) return false
+    if (!OBJECT_ID_PATTERN.test(submissionId)) return false
     try {
       let snapshot = payload.snapshot
       if (snapshot?.imageUrl.startsWith('data:')) {
@@ -628,6 +630,7 @@ export function useProctoring({
   }, [])
 
   const logEvent = useCallback(async (event: ProctoringEvent) => {
+    if (!OBJECT_ID_PATTERN.test(submissionId)) return
     if (shouldThrottleEvent(event.type, event.type === 'audio_detected' ? 10000 : 5000)) return
     const enrichedEvent = {
       ...event,
@@ -694,7 +697,7 @@ export function useProctoring({
   }, [])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !canPersist) return
 
     navigator.mediaDevices?.getUserMedia({
       video: { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 540 } },
@@ -1000,10 +1003,10 @@ export function useProctoring({
       speechRecognitionRef.current = null
       speechRecognitionActiveRef.current = false
     }
-  }, [attachStreamToVideo, blobToDataUrl, captureSnapshot, enabled, getBlobDurationMs, getFaceApiDetections, updateMetrics, uploadEvidence])
+  }, [attachStreamToVideo, blobToDataUrl, canPersist, captureSnapshot, enabled, getBlobDurationMs, getFaceApiDetections, updateMetrics, uploadEvidence])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !canPersist) return
     void enterFullscreen()
 
     const handleFullscreenChange = () => {
@@ -1122,10 +1125,10 @@ export function useProctoring({
       document.removeEventListener('dragstart', block)
       navigator.mediaDevices?.removeEventListener?.('devicechange', handleDevicesChanged)
     }
-  }, [enabled, enterFullscreen, logEvent, updateMetrics])
+  }, [canPersist, enabled, enterFullscreen, logEvent, updateMetrics])
 
   useEffect(() => {
-    if (!enabled || !camActive) return
+    if (!enabled || !canPersist || !camActive) return
 
     const runAnalyzeFrame = async () => {
       const snapshot = captureSnapshot()
@@ -1191,7 +1194,50 @@ export function useProctoring({
           }
 
           const facesCount = Number(backend.faces_count ?? -1)
+          let supplementalFaceDetections: any[] | null = null
+          let supplementalFaceDetector = ''
+
+          if (facesCount <= 1) {
+            const faceApiDetections = await getFaceApiDetections()
+            if (faceApiDetections) {
+              supplementalFaceDetections = faceApiDetections
+              supplementalFaceDetector = 'face-api'
+            } else {
+              const nativeDetections = await getNativeFaceDetections()
+              if (nativeDetections) {
+                supplementalFaceDetections = nativeDetections
+                supplementalFaceDetector = 'native-face-detector'
+              }
+            }
+          }
+
+          if ((supplementalFaceDetections?.length ?? 0) > 1 && emitWithHysteresis('multiple_faces', 0.82, 1)) {
+            void logEvent({
+              type: 'multiple_faces',
+              severity: 'high',
+              details: `Multiple faces detected (${supplementalFaceDetections?.length}) by browser cross-check`,
+              timestamp: new Date(),
+              source: 'browser',
+              confidence: 0.82,
+              evidenceImage: snapshot,
+              detectorDetails: {
+                analysisTickId: tickId,
+                snapshotCaptured: true,
+                pythonAnalyzeStatus: 'healthy',
+                sourceMode: 'browser_fallback',
+                faceCount: supplementalFaceDetections?.length,
+                detector: supplementalFaceDetector,
+                reason: `python_faces_count_${facesCount}`,
+              },
+            })
+            return
+          }
+
           if (facesCount === 0) {
+            if ((supplementalFaceDetections?.length ?? 0) > 0) {
+              return
+            }
+
             void logEvent({
               type: 'face_missing',
               severity: 'high',
@@ -1212,14 +1258,14 @@ export function useProctoring({
             return
           }
 
-          if (facesCount > 1 && emitWithHysteresis('multiple_faces', 0.8)) {
+          if (facesCount > 1 && emitWithHysteresis('multiple_faces', 0.9, 1)) {
             void logEvent({
               type: 'multiple_faces',
               severity: 'high',
               details: `Multiple faces detected (${facesCount}) by Python face counter`,
               timestamp: new Date(),
               source: 'python',
-              confidence: 0.8,
+              confidence: 0.9,
               evidenceImage: snapshot,
               detectorDetails: {
                 analysisTickId: tickId,
@@ -1545,7 +1591,7 @@ export function useProctoring({
     return () => {
       intervalsRef.current.forEach(clearInterval)
     }
-  }, [analyzeFrameWithBackend, camActive, captureSnapshot, emitWithHysteresis, enabled, getFaceApiDetections, getNativeFaceDetections, identitySnapshot, loadObjectDetector, logEvent, uploadEvidence])
+  }, [analyzeFrameWithBackend, camActive, canPersist, captureSnapshot, emitWithHysteresis, enabled, getFaceApiDetections, getNativeFaceDetections, identitySnapshot, loadObjectDetector, logEvent, uploadEvidence])
 
   const stopProctoring = useCallback((options?: { flushRecording?: boolean }) => {
     intervalsRef.current.forEach(clearInterval)

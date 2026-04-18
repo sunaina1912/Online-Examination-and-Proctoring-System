@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
+import mongoose from 'mongoose'
 import { authOptions } from '@/lib/auth'
 import dbConnect from '@/lib/db'
 import Submission from '@/models/Submission'
@@ -127,6 +128,9 @@ export async function POST(req: NextRequest) {
 
     if (!submissionId || !imageDataUrl) {
       return NextResponse.json({ error: 'Missing payload' }, { status: 400 })
+    }
+    if (!mongoose.Types.ObjectId.isValid(submissionId)) {
+      return NextResponse.json({ error: 'Invalid submissionId' }, { status: 400 })
     }
 
     await dbConnect()

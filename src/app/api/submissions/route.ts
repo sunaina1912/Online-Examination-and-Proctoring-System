@@ -31,6 +31,22 @@ function detectSecureBrowser(req: NextRequest) {
   }
 }
 
+function getRemainingExamSeconds(submission: any, exam: any) {
+  const durationSeconds = Math.max(0, Number(exam?.duration ?? 0) * 60)
+  if (!submission?.graceExpiresAt) return durationSeconds
+
+  const hardExpiryMs = new Date(submission.graceExpiresAt).getTime()
+  if (!Number.isFinite(hardExpiryMs)) return durationSeconds
+
+  return Math.max(-30, Math.floor((hardExpiryMs - Date.now()) / 1000) - 30)
+}
+
+function isHardExpired(submission: any) {
+  if (!submission?.graceExpiresAt) return false
+  const hardExpiryMs = new Date(submission.graceExpiresAt).getTime()
+  return Number.isFinite(hardExpiryMs) && Date.now() >= hardExpiryMs
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions)
@@ -49,20 +65,25 @@ export async function POST(req: NextRequest) {
       if (!exam) return NextResponse.json({ error: 'Exam not found' }, { status: 404 })
 
       if (existing) {
-        const remainingSeconds = existing.graceExpiresAt
-          ? Math.max(-30, Math.floor((new Date(existing.graceExpiresAt).getTime() - Date.now()) / 1000))
-          : exam.duration * 60
-        return NextResponse.json({
-          submission: existing,
-          deliveredQuestions: getDeliveredQuestions(exam, {
-            questionOrder: existing.questionOrder,
-            optionOrders: existing.optionOrders,
-          }),
-          answers: existing.answers ?? [],
-          currentQuestionIndex: existing.currentQuestionIndex ?? 0,
-          remainingSeconds,
-          resumed: true,
-        })
+        if (isHardExpired(existing)) {
+          existing.status = 'submitted'
+          existing.submittedAt = existing.graceExpiresAt ?? new Date()
+          existing.graceUsed = true
+          await existing.save()
+        } else {
+          const remainingSeconds = getRemainingExamSeconds(existing, exam)
+          return NextResponse.json({
+            submission: existing,
+            deliveredQuestions: getDeliveredQuestions(exam, {
+              questionOrder: existing.questionOrder,
+              optionOrders: existing.optionOrders,
+            }),
+            answers: existing.answers ?? [],
+            currentQuestionIndex: existing.currentQuestionIndex ?? 0,
+            remainingSeconds,
+            resumed: true,
+          })
+        }
       }
 
       if ((session.user as any).role === 'student' && !isExamOpenForStudent(exam)) {
@@ -93,7 +114,7 @@ export async function POST(req: NextRequest) {
           deliveredQuestions: getDeliveredQuestions(exam, delivery),
           answers: [],
           currentQuestionIndex: 0,
-          remainingSeconds: exam.duration * 60,
+          remainingSeconds: Math.max(0, Number(exam.duration ?? 0) * 60),
           resumed: false,
         },
         { status: 201 }

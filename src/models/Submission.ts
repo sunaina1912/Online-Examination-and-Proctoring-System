@@ -244,6 +244,26 @@ const SubmissionSchema = new Schema<ISubmission>(
   { timestamps: true }
 )
 
+SubmissionSchema.pre('validate', function normalizeSessionMetrics(next) {
+  const metrics = this.sessionMetrics
+  if (metrics?.pythonAnalyzeStatus && !['healthy', 'degraded', 'unavailable'].includes(metrics.pythonAnalyzeStatus)) {
+    metrics.pythonAnalyzeStatus = 'unavailable'
+  }
+  if (metrics?.pythonServiceStatus && !['healthy', 'degraded', 'unavailable'].includes(metrics.pythonServiceStatus)) {
+    metrics.pythonServiceStatus = 'unavailable'
+  }
+  if (metrics?.secureBrowserMode && !['seb', 'standard'].includes(metrics.secureBrowserMode)) {
+    metrics.secureBrowserMode = 'standard'
+  }
+  if (metrics?.secureBrowserTrust && !['high', 'reduced'].includes(metrics.secureBrowserTrust)) {
+    metrics.secureBrowserTrust = 'reduced'
+  }
+  if (metrics?.detectorMode && !['python_primary', 'browser_fallback'].includes(metrics.detectorMode)) {
+    metrics.detectorMode = 'browser_fallback'
+  }
+  next()
+})
+
 const Submission: Model<ISubmission> =
   mongoose.models.Submission ?? mongoose.model<ISubmission>('Submission', SubmissionSchema)
 

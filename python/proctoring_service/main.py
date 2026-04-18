@@ -137,6 +137,11 @@ def get_face_cascade():
 
 
 @lru_cache(maxsize=1)
+def get_profile_face_cascade():
+    return cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_profileface.xml")
+
+
+@lru_cache(maxsize=1)
 def get_phone_model():
     if YOLO is None:
         return None
@@ -217,6 +222,31 @@ def estimate_gaze_offscreen_score(image: np.ndarray) -> float:
         return 0.0
 
 
+def overlap_ratio(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> float:
+    left_x, left_y, left_w, left_h = left
+    right_x, right_y, right_w, right_h = right
+    x1 = max(left_x, right_x)
+    y1 = max(left_y, right_y)
+    x2 = min(left_x + left_w, right_x + right_w)
+    y2 = min(left_y + left_h, right_y + right_h)
+    intersection = max(0, x2 - x1) * max(0, y2 - y1)
+    smaller_area = max(1, min(left_w * left_h, right_w * right_h))
+    return intersection / float(smaller_area)
+
+
+def count_distinct_boxes(box_groups: List[Any]) -> int:
+    distinct: List[tuple[int, int, int, int]] = []
+    for group in box_groups:
+        for box in group:
+            rect = tuple(int(value) for value in box[:4])
+            if rect[2] <= 0 or rect[3] <= 0:
+                continue
+            if any(overlap_ratio(rect, existing) > 0.45 for existing in distinct):
+                continue
+            distinct.append(rect)
+    return len(distinct)
+
+
 def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
     working_image = resize_for_processing(image, 960)
     gray = cv2.cvtColor(working_image, cv2.COLOR_BGR2GRAY)
@@ -228,7 +258,29 @@ def detect_faces_count(image: np.ndarray) -> Dict[str, Any]:
         minNeighbors=3,
         minSize=(28, 28),
     )
-    cascade_count = max(int(len(faces)), int(len(normalized_faces)))
+    profile_faces = get_profile_face_cascade().detectMultiScale(
+        gray,
+        scaleFactor=1.08,
+        minNeighbors=3,
+        minSize=(28, 28),
+    )
+    flipped_profile_faces = get_profile_face_cascade().detectMultiScale(
+        cv2.flip(gray, 1),
+        scaleFactor=1.08,
+        minNeighbors=3,
+        minSize=(28, 28),
+    )
+    if len(flipped_profile_faces):
+        image_width = gray.shape[1]
+        flipped_profile_faces = np.array([
+            (image_width - x - w, y, w, h)
+            for x, y, w, h in flipped_profile_faces
+        ])
+    cascade_count = max(
+        int(len(faces)),
+        int(len(normalized_faces)),
+        count_distinct_boxes([faces, normalized_faces, profile_faces, flipped_profile_faces]),
+    )
     height, width = gray.shape[:2]
 
     tile_counts: List[int] = []

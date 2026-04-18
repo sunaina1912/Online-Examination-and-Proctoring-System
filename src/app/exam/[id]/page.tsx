@@ -38,6 +38,7 @@ export default function ExamPage() {
   const [deliveredQuestions, setDeliveredQuestions] = useState<any[]>([])
   const [current, setCurrent] = useState(0)
   const [result, setResult] = useState<any>(null)
+  const [submitError, setSubmitError] = useState('')
   const [submitting, setSubmit] = useState(false)
   const [openingSession, setOpeningSession] = useState(false)
   const [resumeReady, setResumeReady] = useState<ResumeState | null>(null)
@@ -85,7 +86,7 @@ export default function ExamPage() {
 
   const proctoring = useProctoring({
     submissionId: submission?._id ?? '',
-    enabled: phase === 'exam',
+    enabled: phase === 'exam' && Boolean(submission?._id),
     onFlagged: () => console.warn('Exam flagged'),
   })
 
@@ -93,6 +94,7 @@ export default function ExamPage() {
     if (submittingRef.current || !submission?._id) return
     submittingRef.current = true
     setSubmit(true)
+    setSubmitError('')
     proctoring.stopProctoring({ flushRecording: false })
 
     try {
@@ -102,8 +104,13 @@ export default function ExamPage() {
         body: JSON.stringify({ action: 'submit', submissionId: submission._id, answers }),
       })
       const data = await response.json()
+      if (!response.ok) {
+        throw new Error(data?.error ?? 'Unable to submit exam')
+      }
       setResult(data)
       setPhase('result')
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : 'Unable to submit exam')
     } finally {
       setSubmit(false)
       submittingRef.current = false
@@ -285,8 +292,8 @@ export default function ExamPage() {
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
               {[
-                { label: 'Score', value: result?.score, tone: result?.passed ? 'text-ok' : 'text-danger' },
-                { label: 'Percentage', value: `${result?.percentage}%`, tone: result?.passed ? 'text-ok' : 'text-danger' },
+                { label: 'Score', value: result?.score ?? 0, tone: result?.passed ? 'text-ok' : 'text-danger' },
+                { label: 'Percentage', value: `${result?.percentage ?? 0}%`, tone: result?.passed ? 'text-ok' : 'text-danger' },
                 { label: 'Risk', value: proctoring.riskScore, tone: proctoring.riskScore >= 80 ? 'text-danger' : proctoring.riskScore >= 40 ? 'text-warn' : 'text-ok' },
                 { label: 'Plagiarism', value: `${result?.plagiarismScore ?? 0}%`, tone: (result?.plagiarismScore ?? 0) >= 80 ? 'text-danger' : (result?.plagiarismScore ?? 0) >= 40 ? 'text-warn' : 'text-ok' },
               ].map((item) => (
@@ -331,6 +338,9 @@ export default function ExamPage() {
           <ExamTimer formatted={timer.formatted} />
           {timer.formatted.isGracePeriod && (
             <p className="text-[10px] text-danger font-medium">Grace period active. Auto-submit is imminent.</p>
+          )}
+          {submitError && (
+            <p className="text-[10px] text-danger font-medium">{submitError}</p>
           )}
         </div>
         <button

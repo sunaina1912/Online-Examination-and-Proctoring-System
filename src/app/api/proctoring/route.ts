@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
+import mongoose from 'mongoose'
 import { authOptions } from '@/lib/auth'
 import dbConnect from '@/lib/db'
 import Submission from '@/models/Submission'
@@ -16,6 +17,38 @@ const RISK_WEIGHTS: Record<string, number> = {
   network_change: 6,
   identity_unverified: 30,
 }
+
+const SESSION_METRIC_KEYS = new Set([
+  'fullscreenViolations',
+  'deviceChanges',
+  'networkDisconnects',
+  'recordingSupported',
+  'audioMonitoringActive',
+  'pythonServiceStatus',
+  'pythonAnalyzeStatus',
+  'pythonModelStatus',
+  'pythonLastLatencyMs',
+  'pythonFallbackActive',
+  'invalidClipsDropped',
+  'pythonLastSuccessAt',
+  'pythonLastFailureReason',
+  'pythonLastAnalyzeAt',
+  'pythonLastAnalyzeSuccessAt',
+  'pythonLastAnalyzeFailureReason',
+  'pythonAnalyzeAttempts',
+  'pythonAnalyzeSuccessCount',
+  'pythonAnalyzeFailureCount',
+  'lastSnapshotCapturedAt',
+  'lastSnapshotCaptureFailedReason',
+  'secureBrowserMode',
+  'secureBrowserTrust',
+  'detectorMode',
+])
+
+const PYTHON_STATUS_VALUES = new Set(['healthy', 'degraded', 'unavailable'])
+const SECURE_BROWSER_MODE_VALUES = new Set(['seb', 'standard'])
+const SECURE_BROWSER_TRUST_VALUES = new Set(['high', 'reduced'])
+const DETECTOR_MODE_VALUES = new Set(['python_primary', 'browser_fallback'])
 
 let pythonEventForwardDownUntil = 0
 let pythonEventForwardLastError = ''
@@ -60,6 +93,30 @@ function normalizeEvent(event: any) {
         }
       : undefined,
   }
+}
+
+function normalizeSessionMetrics(sessionMetrics: any) {
+  if (!sessionMetrics || typeof sessionMetrics !== 'object') return {}
+
+  return Object.fromEntries(
+    Object.entries(sessionMetrics)
+      .filter(([key]) => SESSION_METRIC_KEYS.has(key))
+      .map(([key, value]) => {
+        if (key === 'pythonServiceStatus' || key === 'pythonAnalyzeStatus') {
+          return [key, PYTHON_STATUS_VALUES.has(String(value)) ? value : 'unavailable']
+        }
+        if (key === 'secureBrowserMode') {
+          return [key, SECURE_BROWSER_MODE_VALUES.has(String(value)) ? value : 'standard']
+        }
+        if (key === 'secureBrowserTrust') {
+          return [key, SECURE_BROWSER_TRUST_VALUES.has(String(value)) ? value : 'reduced']
+        }
+        if (key === 'detectorMode') {
+          return [key, DETECTOR_MODE_VALUES.has(String(value)) ? value : 'browser_fallback']
+        }
+        return [key, value]
+      })
+  )
 }
 
 function shouldAcceptEvent(submissionId: string, event: any) {
@@ -122,6 +179,10 @@ export async function POST(req: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { submissionId, event, sessionMetrics, snapshot, recordingClip } = await req.json()
+    if (!mongoose.Types.ObjectId.isValid(submissionId)) {
+      return NextResponse.json({ error: 'Invalid submissionId' }, { status: 400 })
+    }
+
     await dbConnect()
 
     const submission = await Submission.findById(submissionId).select('proctoringEvents studentId')
@@ -153,11 +214,13 @@ export async function POST(req: NextRequest) {
       update.$set.status = status
     }
 
-    if (sessionMetrics) {
+    const normalizedSessionMetrics = normalizeSessionMetrics(sessionMetrics)
+
+    if (Object.keys(normalizedSessionMetrics).length > 0) {
       update.$set = {
         ...update.$set,
         ...Object.fromEntries(
-          Object.entries(sessionMetrics).map(([key, value]) => [`sessionMetrics.${key}`, value])
+          Object.entries(normalizedSessionMetrics).map(([key, value]) => [`sessionMetrics.${key}`, value])
         ),
       }
     }
@@ -234,7 +297,7 @@ export async function POST(req: NextRequest) {
     await forwardPayloadToPython({
       submissionId,
       event: acceptedEvent,
-      sessionMetrics,
+      sessionMetrics: normalizedSessionMetrics,
       snapshot,
       recordingClip,
     })

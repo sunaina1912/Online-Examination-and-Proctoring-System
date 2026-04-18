@@ -20,7 +20,7 @@ interface ProctoringOverlayProps {
     recordingSupported: boolean
     audioMonitoringActive: boolean
     pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable'
-    pythonAnalyzeStatus: 'idle' | 'healthy' | 'degraded' | 'unavailable'
+    pythonAnalyzeStatus: 'healthy' | 'degraded' | 'unavailable'
     pythonModelStatus: string
     pythonLastLatencyMs: number
     pythonFallbackActive: boolean
