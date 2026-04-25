@@ -31,7 +31,7 @@ export interface ProctoringEvent {
     identityDistance?: number
     analysisTickId?: string
     snapshotCaptured?: boolean
-    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable'
+    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable' | 'idle'
     detector?: string
     reason?: string
   }
@@ -43,8 +43,8 @@ interface SessionMetrics {
   networkDisconnects: number
   recordingSupported: boolean
   audioMonitoringActive: boolean
-  pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable'
-  pythonAnalyzeStatus: 'healthy' | 'degraded' | 'unavailable'
+  pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable' | 'idle'
+  pythonAnalyzeStatus: 'healthy' | 'degraded' | 'unavailable' | 'idle'
   pythonModelStatus: string
   pythonLastLatencyMs: number
   pythonFallbackActive: boolean
@@ -76,7 +76,7 @@ interface PythonAnalysisPayload {
   analysis_ok?: boolean
   reason?: string
   model_status?: string
-  service_status?: 'healthy' | 'degraded' | 'unavailable' | string
+  service_status?: 'healthy' | 'degraded' | 'unavailable' | 'idle' | string
   latency_ms?: number
   faces_count?: number
   identity_distance?: number | null
@@ -94,7 +94,7 @@ interface PythonHealthPayload {
   healthy?: boolean
   reason?: string
   model_status?: string
-  service_status?: 'healthy' | 'degraded' | 'unavailable' | string
+  service_status?: 'healthy' | 'degraded' | 'unavailable' | 'idle' | string
   checked_at_ms?: number
   last_failure_reason?: string
 }

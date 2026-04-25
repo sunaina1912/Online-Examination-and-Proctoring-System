@@ -19,8 +19,8 @@ interface ProctoringOverlayProps {
     networkDisconnects: number
     recordingSupported: boolean
     audioMonitoringActive: boolean
-    pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable'
-    pythonAnalyzeStatus: 'healthy' | 'degraded' | 'unavailable'
+    pythonServiceStatus: 'healthy' | 'degraded' | 'unavailable' | 'idle'
+    pythonAnalyzeStatus: 'healthy' | 'degraded' | 'unavailable' | 'idle'
     pythonModelStatus: string
     pythonLastLatencyMs: number
     pythonFallbackActive: boolean

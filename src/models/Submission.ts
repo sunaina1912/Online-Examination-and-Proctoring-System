@@ -27,7 +27,7 @@ export interface IProctoringEvent {
     identityDistance?: number
     analysisTickId?: string
     snapshotCaptured?: boolean
-    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable'
+    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable' | 'idle'
     detector?: string
     reason?: string
   }
@@ -92,8 +92,8 @@ export interface ISubmission extends Document {
     networkDisconnects: number
     recordingSupported: boolean
     audioMonitoringActive: boolean
-    pythonServiceStatus?: 'healthy' | 'degraded' | 'unavailable'
-    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable'
+    pythonServiceStatus?: 'healthy' | 'degraded' | 'unavailable' | 'idle'
+    pythonAnalyzeStatus?: 'healthy' | 'degraded' | 'unavailable' | 'idle'
     pythonModelStatus?: string
     pythonLastLatencyMs?: number
     pythonFallbackActive?: boolean
@@ -131,7 +131,7 @@ const ProctoringEventSchema = new Schema<IProctoringEvent>({
     identityDistance: Number,
     analysisTickId: String,
     snapshotCaptured: Boolean,
-    pythonAnalyzeStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable'] },
+    pythonAnalyzeStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable', 'idle'] },
     detector: String,
     reason: String,
   },
@@ -220,8 +220,8 @@ const SubmissionSchema = new Schema<ISubmission>(
       networkDisconnects: { type: Number, default: 0 },
       recordingSupported: { type: Boolean, default: false },
       audioMonitoringActive: { type: Boolean, default: false },
-      pythonServiceStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable'], default: 'unavailable' },
-      pythonAnalyzeStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable'], default: 'unavailable' },
+      pythonServiceStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable', 'idle'], default: 'unavailable' },
+      pythonAnalyzeStatus: { type: String, enum: ['healthy', 'degraded', 'unavailable', 'idle'], default: 'unavailable' },
       pythonModelStatus: { type: String, default: '' },
       pythonLastLatencyMs: { type: Number, default: 0 },
       pythonFallbackActive: { type: Boolean, default: false },
@@ -246,10 +246,10 @@ const SubmissionSchema = new Schema<ISubmission>(
 
 SubmissionSchema.pre('validate', function normalizeSessionMetrics(next) {
   const metrics = this.sessionMetrics
-  if (metrics?.pythonAnalyzeStatus && !['healthy', 'degraded', 'unavailable'].includes(metrics.pythonAnalyzeStatus)) {
+  if (metrics?.pythonAnalyzeStatus && !['healthy', 'degraded', 'unavailable', 'idle'].includes(metrics.pythonAnalyzeStatus)) {
     metrics.pythonAnalyzeStatus = 'unavailable'
   }
-  if (metrics?.pythonServiceStatus && !['healthy', 'degraded', 'unavailable'].includes(metrics.pythonServiceStatus)) {
+  if (metrics?.pythonServiceStatus && !['healthy', 'degraded', 'unavailable', 'idle'].includes(metrics.pythonServiceStatus)) {
     metrics.pythonServiceStatus = 'unavailable'
   }
   if (metrics?.secureBrowserMode && !['seb', 'standard'].includes(metrics.secureBrowserMode)) {
