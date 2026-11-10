@@ -32,3 +32,20 @@ next-env.d.ts
 Thumbs.db
 .idea/
 .vscode/
+# Python
+venv/
+.venv/
+env/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Python environment files
+.env
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Machine Learning model files (optional)
+# *.pkl
+# *.joblib
