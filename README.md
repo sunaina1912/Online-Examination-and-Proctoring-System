@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ProctorX — AI-Powered Online Exam Proctoring System
 
 > Next.js 14 · Tailwind · MongoDB · NextAuth · Mock AI (swap-ready)
@@ -229,3 +230,6 @@ NEXTAUTH_URL=http://localhost:3000
 - [ ] LMS integration (export grades)
 - [ ] Blockchain certificate verification
 - [ ] Plagiarism detection for descriptive answers
+=======
+# Online-Examination-and-Proctoring-System
+>>>>>>> fe78a62aa893b2e7e4634ab90645dad354b74a47
